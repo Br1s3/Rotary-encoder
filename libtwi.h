@@ -6,7 +6,8 @@
 int TWI_start();
 int TWI_SLA_W(uint8_t SLA_W);
 int TWI_write(uint8_t DATA);
-// uint8_t TWI_read();
+uint8_t TWI_read();
+
 #ifdef TWI_stop
 # undef TWI_stop
 #endif
@@ -69,14 +70,34 @@ int TWI_write(uint8_t data)
     return 0;
 }
 
-// // 7. Check value of TWI status register. Mask prescaler bits. If status different from MT_DATA_ACK go to TWI_stop
-// uint8_t TWI_read()
-// {
-//     uint8_t res = TWSR & NO_RELEVANT_STATE;
-//     if (res != MT_DATA_ACK)
-//         TWI_stop(res);
-//     return res;
-// }
+int TWI_SLA_R(uint8_t sla_w)
+{
+    // 3. Load SLA_R into TWDR register. Clear TWINT bit in TWCR to start transmission of address
+    TWDR = (sla_w << 1) | 0;
+    TWCR = _BV(TWINT) | _BV(TWEN);
+    // 4. Wait for TWINT flag set. This indicates that the SLA+W has been transmitted, and ACK/NACK has been received.
+    loop_until_bit_is_set(TWCR, TWINT);
+
+    // 5. Check value of TWI status register. Mask prescaler bits. If status different from MT_SLA_ACK go to TWI_stop
+    if (TW_STATUS != TW_MR_SLA_ACK) { // TODO: Verify more condition (MR_LOST, SR_LOST_SLA, ...)
+        TWI_stop();
+	return -1;
+    }
+    return 0;
+}
+
+// 7. Check value of TWI status register. Mask prescaler bits. If status different from MT_DATA_ACK go to TWI_stop
+uint8_t TWI_read()
+{
+    unsigned char response = TWDR;
+    TWCR = _BV(TWINT) | _BV(TWSTO) | _BV(TWEN);
+
+    loop_until_bit_is_set(TWCR, TWINT);
+
+    if (TW_STATUS != TW_MR_DATA_ACK)
+        TWI_stop();
+    return response;
+}
 
 
 # endif // LIBTWI_IMPLEMENTATION
