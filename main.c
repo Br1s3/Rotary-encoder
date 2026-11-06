@@ -3,11 +3,15 @@
 #include <avr/io.h>
 // #include <avr/interrupt.h>
 
+#define TWI_DEBUG
 #define PRINTF_IMPLEMENTATION
 #include "printf.h"
 
 #define LIBTWI_IMPLEMENTATION
 #include "libtwi.h"
+
+#define LIBAS5600_IMPLEMENTATION
+#include "libAS5600.h"
 
 /***************************************************/
 /* ENA | IN1 | IN2 || OUT1 | OUT2 | Etat du moteur */
@@ -28,26 +32,6 @@
 /***************************************************/
 
 
-// AS5600 I2C adress is 0x36
-
-int Research_ADDR(uint8_t sla_addr)
-{
-    // START condition
-    TWI_start();
-    
-    // SLA+W
-    if (TWI_SLA_W(sla_addr) != 0) {
-	TWI_stop();
-	return -1;
-    }
-
-    TWI_stop();
-
-    return 0;
-}
-
-
-
 void TWI_Init()
 {
     // SCL_freq = CPU_clk_freq / (16 + 2*(TWBR) * PrescalerValue)
@@ -58,9 +42,9 @@ void TWI_Init()
 
 void PWM0_Init()
 {
-    DDRD = _BV(DDD6) | _BV(DDD5);
+    DDRD   = _BV(DDD6)   | _BV(DDD5);
     TCCR0A = _BV(COM0A1) | _BV(COM0B1) | _BV(WGM01) | _BV(WGM00);
-    TCCR0B = _BV(CS01) | _BV(CS00);
+    TCCR0B = _BV(CS01)   | _BV(CS00);
     OCR0A = 0xff/2;
     OCR0B = 0xff/2;
 }
@@ -78,13 +62,13 @@ void Rotary_Encoder()
     val ^= val >> 2;
     val ^= val >> 1;
     val = bit_is_set(PINC, PINC3) != 0 ? -val : val;
-    
+
     float ratio = (float)(val/7.f);
     uint8_t pwmP_val = (1.f + ratio)*127.5f;
     uint8_t pwmN_val = (1.f - ratio)*127.5f;
-    
+
     printf("val: %d, ratio: %.2f, PWMP: %u, PWMN: %u\n", val, ratio, pwmP_val, pwmN_val);
-    
+
     if (pwmP_val == 0) TCCR0A &= ~_BV(COM0A1);
     else               TCCR0A |= _BV(COM0A1);
     if (pwmN_val == 0) TCCR0A &= ~_BV(COM0B1);
@@ -94,6 +78,33 @@ void Rotary_Encoder()
     OCR0B = pwmN_val;
 }
 
+int read_the_3first_data()
+{
+    int res = 0;
+    res = TWI_start();
+    if (res != 0) return res;
+
+    res = TWI_sla_r(AS5600_SLA_ADDRESS);
+    if (res != 0) return res;
+
+    uint8_t dt[3];
+    res = TWI_data_r(ACK, &dt[0]);
+    if (res != 0) return res;
+    printf("res[0]: 0x%02x\n", dt[0]);
+
+    res = TWI_data_r(ACK, &dt[1]);
+    if (res != 0) return res;
+    printf("res[1]: 0x%02x\n", dt[1]);
+
+    res = TWI_data_r(NACK, &dt[2]);
+    if (res != 0) return res;
+    printf("res[2]: 0x%02x\n", dt[2]);
+
+    TWI_stop();
+    return 0;
+}
+
+
 int main()
 {
     USART_Init(3);
@@ -101,23 +112,17 @@ int main()
     PORT_init();
     PWM0_Init();
 
-    uint8_t addr = 0x00;
-    int addr_found = -1;
+
+    // printf("result: %d\n", read_the_3first_data());
+
     while (1) {
-	// while (addr_found != 0) {
-	//     if (Research_ADDR(addr) == 0) {
-	// 	addr_found = 0;
-	// 	printf("PASS avec: 0x%02x\n", addr);
-	//     } else {
-	// 	printf("NACK Address: 0x%02x\n", addr);
-	// 	addr++;
-	//     }
-	//     PORTB ^= (1 << PORTB5);
-	//     _delay_ms(50);
-	// }
-	Rotary_Encoder();
+	uint16_t angle = 0;
+	int res = AS5600_read_16B_register(AS5600_MAGNITUDE1, &angle);
+	if (res != 0) printf("ERROR: 0x%02x: %s\n", res, twierror(res));
+	printf("angle: 0x%02x, 0x%02x: %u\n", (uint8_t)(angle >> 8), (uint8_t)(angle & 0x0f), angle);
+
+	// Rotary_Encoder();
 	PORTB ^= (1 << PORTB5);
 	_delay_ms(100);
-	
     }
 }

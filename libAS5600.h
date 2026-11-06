@@ -1,8 +1,8 @@
-#define LIBAS5600_H_INCLUDED
+#ifndef LIBAS5600_H_INCLUDED
 #define LIBAS5600_H_INCLUDED
 
-#define LIBAS5600_IMPLEMENTATION
-#include "libAS5600.h"
+#define LIBTWI_IMPLEMENTATION
+#include "libtwi.h"
 
 // Configuration Registers
 #define AS5600_ZMCO       0x00
@@ -31,10 +31,10 @@
 #define AS5600_PWMF0      0b110   // 00 = 115 Hz; 01 = 230 Hz; 10 = 460 Hz; 11 = 920 Hz
 
 // Output Registers
-#define AS5600_RAW_ANGLE  0x0C
-#define AS5600_RAW_ANGLE  0x0D
-#define AS5600_ANGLE      0x0E
-#define AS5600_ANGLE      0x0F
+#define AS5600_RAW_ANGLE1 0x0C
+#define AS5600_RAW_ANGLE0 0x0D
+#define AS5600_ANGLE1     0x0E
+#define AS5600_ANGLE0     0x0F
 
 // Status Registers
 #define AS5600_STATUS     0x0B
@@ -51,29 +51,128 @@
 #define AS5600_BURN_ANGLE   0x80 // Data to send after the register
 #define AS5600_BURN_SETTING 0x40 // -- same --
 
-#define AS5600_ADDRESS 0x36
+#define AS5600_SLA_ADDRESS  0x36
 
-int i2c_AS5600_init();
+int AS5600_read_angle(uint16_t *angle);
 
 # ifdef LIBAS5600_IMPLEMENTATION
 
-int i2c_AS5600_init()
+
+// This function is real way to read a 2 bytes register from the AS5600
+int AS5600_read_16B_register_test(uint8_t reg, uint16_t *data)
 {
-    TWI_start();
+    int res = 0;
+    uint8_t data8b[2] = {0};
 
-    if (TWI_SLA_W(AS5600_ADDRESS) != 0) return 1;
+// START
+    res = TWI_start();
+    if (res != 0) return res;
+// SLA+W
+    res = TWI_sla_w(AS5600_SLA_ADDRESS);
+    if (res != 0) return res;
+// octet ANGLE_H
+    res = TWI_data_w(reg);
+    if (res != 0) return res;
 
-    for (int i = 0; i < )
+// RESTART
+    res = TWI_start();
+    if (res != 0) return res;
+// SLA+R
+    res = TWI_sla_r(AS5600_SLA_ADDRESS);
+    if (res != 0) return res;
+// octet ANGLE_H
+    res = TWI_data_r(NACK, &data8b[0]);
+    if (res != 0) return res;
+
+// RESTART
+    res = TWI_start();
+    if (res != 0) return res;
+// SLA+W
+    res = TWI_sla_w(AS5600_SLA_ADDRESS);
+    if (res != 0) return res;
+// octet ANGLE_L
+    res = TWI_data_w(reg+1);
+    if (res != 0) return res;
+
+// RESTART
+    res = TWI_start();
+    if (res != 0) return res;
+// SLA+R
+    res = TWI_sla_r(AS5600_SLA_ADDRESS);
+    if (res != 0) return res;
+// octet ANGLE_L
+    res = TWI_data_r(NACK, &data8b[1]);
+    if (res != 0) return res;
+
+// STOP
+    TWI_stop();
+
+    *data = ((uint16_t)data8b[0] << 8) | data8b[1];
+    return 0;
+}
+
+/*
+ * Against all odds, the RAW ANGLE, ANGLE and MAGNITUDE register from the AS5600 get:
+ *   Automatic Increment of the Address Pointer for ANGLE,
+ *   RAW ANGLE and MAGNITUDE Registers
+ */
+int AS5600_read_16B_register(uint8_t reg, uint16_t *data)
+{
+    int res = 0;
+    uint8_t data8b[2] = {0};
+
+// START
+    res = TWI_start();
+    if (res != 0) return res;
+    // printf("START: 0x%02x\n", res);
+
+// SLA+W
+    res = TWI_sla_w(AS5600_SLA_ADDRESS);
+    if (res != 0) return res;
+    // printf("SLA+W: 0x%02x\n", res);
+
+// octet ANGLE_H
+    res = TWI_data_w(reg);
+    if (res != 0) return res;
+    // printf("DATA WRITE: 0x%02x\n", res);
+
+// RESTART
+    res = TWI_start();
+    if (res != 0) return res;
+    // printf("RESTART: 0x%02x\n", res);
+
+// SLA+R
+    res = TWI_sla_r(AS5600_SLA_ADDRESS);
+    if (res != 0) return res;
+    // printf("SLA+R: 0x%02x\n", res);
+
+// octet ANGLE_H
+    res = TWI_data_r(ACK, &data8b[0]);
+    if (res != 0) return res;
+    // printf("DATA READ: 0x%02x\n", res);
+
+// octet ANGLE_L
+    res = TWI_data_r(NACK, &data8b[1]);
+    if (res != 0) return res;
+    // printf("DATA READ: 0x%02x\n", res);
 
     TWI_stop();
+
+    *data = ((uint16_t)data8b[0] << 8) | data8b[1];
+    return 0;
 }
 
 
+// int i2c_AS5600_init()
+// {
+//     TWI_start();
+
+//     if (TWI_sla_w(AS5600_ADDRESS) != 0) return 1;
+
+//     for (int i = 0; i < )
+
+//     TWI_stop();
+// }
+
 # endif // LIBAS5600_IMPLEMENTATION
 #endif // LIBAS5600_H_INCLUDED
-
-
-
-
-
-
