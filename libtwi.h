@@ -5,6 +5,16 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define TWI_TIMEOUT F_CPU/25
+
+#define ctrl_loop_until_bit_is_set(sfr, bit)                   \
+do {                                                           \
+    uint32_t timeout = 0;                                      \
+    do {                                                       \
+	timeout++;                                             \
+    } while (bit_is_clear(sfr, bit) && timeout < TWI_TIMEOUT); \
+} while (0)
+
 #define TWI_REG_START    do {TWCR = (_BV(TWINT) | _BV(TWSTA) | _BV(TWEN));} while(0)
 #define TWI_REG_SLA_RW   do {TWCR = (_BV(TWINT) | _BV(TWEN));} while(0)
 #define TWI_REG_WRITE    do {TWCR = (_BV(TWINT) | _BV(TWEN));} while(0)
@@ -67,7 +77,7 @@ int TWI_start()
     TWI_REG_START;
 
     // 2. Wait for TWINT flag set. This indicates that the START condition has been transmitted
-    loop_until_bit_is_set(TWCR, TWINT);
+    ctrl_loop_until_bit_is_set(TWCR, TWINT);
 
     // 3. Check value of TWI status register. Mask prescaler bits. If status different from START
     if ((TW_STATUS != TW_START) && (TW_STATUS != TW_REP_START)) {
@@ -85,7 +95,7 @@ int TWI_sla_w(uint8_t sla)
     TWI_REG_SLA_RW;
 
     // 4. Wait for TWINT flag set. This indicates that the SLA+W has been transmitted, and ACK/NACK has been received.
-    loop_until_bit_is_set(TWCR, TWINT);
+    ctrl_loop_until_bit_is_set(TWCR, TWINT);
 
     // 5. Check value of TWI status register. Mask prescaler bits. If status different from MT_SLA_ACK...
     if (TW_STATUS == TW_MT_SLA_NACK) {
@@ -105,7 +115,7 @@ int TWI_data_w(uint8_t data)
     TWI_REG_WRITE;
 
     // 6. Wait for TWINT flag set. This indicates that the DATA has been transmitted, and ACK/NACK has been received.
-    loop_until_bit_is_set(TWCR, TWINT);
+    ctrl_loop_until_bit_is_set(TWCR, TWINT);
 
     // 7. Check value of TWI status register. Mask prescaler bits. If status different from MT_DATA_ACK...
     if (TW_STATUS == TW_MT_DATA_NACK) {
@@ -123,7 +133,7 @@ int TWI_sla_r(uint8_t sla)
     TWI_REG_SLA_RW;
 
     // 4. Wait for TWINT flag set. This indicates that the SLA+W has been transmitted, and ACK/NACK has been received.
-    loop_until_bit_is_set(TWCR, TWINT);
+    ctrl_loop_until_bit_is_set(TWCR, TWINT);
 
     // 5. Check value of TWI status register. Mask prescaler bits. If status different from MT_SLA_ACK go to TWI_stop
     if (TW_STATUS == TW_MR_SLA_NACK) {
@@ -142,7 +152,7 @@ int TWI_data_r(bool ack, uint8_t *data)
     else            TWI_REG_READNACK;
 
     // 6. Wait for TWINT flag set. This indicates that the DATA has been received, and ACK/NACK has been received.
-    loop_until_bit_is_set(TWCR, TWINT);
+    ctrl_loop_until_bit_is_set(TWCR, TWINT);
 
     // 7. Check value of TWI status register. Mask prescaler bits. If status different from MR_DATA_ACK go to TWI_stop
     if (((ack == ACK) && (TW_STATUS != TW_MR_DATA_ACK)) ||

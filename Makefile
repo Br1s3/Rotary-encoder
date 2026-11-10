@@ -2,10 +2,10 @@ RM = rm -rfv
 MKDIR = mkdir -p 
 
 INPUT_FILE_NAME = \
-main
+StepperMotor
 
 OUTPUT_FILE_NAME =\
-I2CAddressScanner
+Rotary-encoder
 
 SRC +=            \
 $(INPUT_FILE_NAME).c
@@ -24,9 +24,10 @@ $(OUTPUT_FILE_NAME).hex
 ELF     =         \
 $(OUTPUT_FILE_NAME).elf
 
-CFLAGS +=       \
--Wl,-u,vfprintf \
--lprintf_flt -lm
+CFLAGS +=        \
+-Wl,-u,vfprintf  \
+-lprintf_flt -lm \
+-O0
 
 $(OBJ_DIR):
 	$(MKDIR) $(OBJ_DIR)

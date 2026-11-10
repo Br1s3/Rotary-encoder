@@ -15,3 +15,6 @@ _Datasheet of the L298N_
 
 _Convert the Gray code_
 - https://en.wikipedia.org/wiki/Gray_code
+
+_Microstep Driver Motor TB6600_
+- https://components101.com/sites/default/files/component_datasheet/TB6600-Datasheet.pdf
