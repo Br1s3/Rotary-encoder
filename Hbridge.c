@@ -114,7 +114,7 @@ int main()
     PWM0_Init();
 
     AS5600_conf ASConf = {0};
-    int res = i2c_AS5600_read_conf(&ASConf);
+    int res = AS5600_read_conf(&ASConf);
 #ifdef TWI_DEBUG
 	if (res != 0) printf("ERROR: 0x%02x: %s\n", res, twierror(res));
 #endif // TWI_DEBUG
@@ -123,12 +123,12 @@ int main()
     printf("PWMF: 0x%02x\nOUTS: 0x%02x\nHYST: 0x%02x\nPM: 0x%02x\n", ASConf.PWMF, ASConf.OUTS, ASConf.HYST, ASConf.PM);
 
     while (1) {
-// 	uint16_t angle = 0;
-// 	int res = AS5600_read_16B_register(AS5600_MAGNITUDE1, &angle);
-// #ifdef TWI_DEBUG
-// 	if (res != 0) printf("ERROR: 0x%02x: %s\n", res, twierror(res));
-// #endif // TWI_DEBUG
-// 	printf("angle: 0x%02x, 0x%02x: %u\n", (uint8_t)(angle >> 8), (uint8_t)(angle & 0x0f), angle);
+	uint16_t angle = 0;
+	int res = AS5600_read_16b_register(AS5600_MAGNITUDE, &angle);
+#ifdef TWI_DEBUG
+	if (res != 0) printf("ERROR: 0x%02x: %s\n", res, twierror(res));
+#endif // TWI_DEBUG
+	printf("angle: 0x%02x, 0x%02x: %u\n", (uint8_t)(angle >> 8), (uint8_t)(angle & 0x0f), angle);
 
 	Rotary_Encoder();
 	PORTB ^= (1 << PORTB5);
