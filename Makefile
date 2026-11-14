@@ -3,6 +3,7 @@ MKDIR = mkdir -p
 
 INPUT_FILE_NAME = \
 StepperMotor
+# Hbridge
 
 OUTPUT_FILE_NAME =\
 Rotary-encoder
@@ -24,9 +25,9 @@ $(OUTPUT_FILE_NAME).hex
 ELF     =         \
 $(OUTPUT_FILE_NAME).elf
 
-CFLAGS +=        \
--Wl,-u,vfprintf  \
--lprintf_flt -lm \
+CFLAGS +=         \
+-Wl,-u,vfprintf   \
+-lprintf_flt -lm  \
 -O0
 
 $(OBJ_DIR):
