@@ -175,6 +175,11 @@ int AS5600_read_16b_register(uint8_t reg, uint16_t *data)
 
     *data = ((uint16_t)data8b[0] << 8) | data8b[1];
     return 0;
+    /*
+     * ~5*9 bits long which gives 45 bits ~6 bytes
+     * With a SCL at 100kHz it gives the data at the speed of 2222 Hz
+     * With a SCL at 400kHz it gives the data at the speed of 8889 Hz
+     */
 }
 
 int AS5600_write_16b_register(uint8_t reg, uint16_t *data)
