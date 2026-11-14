@@ -18,3 +18,4 @@ _Convert the Gray code_
 
 _Microstep Driver Motor TB6600_
 - https://components101.com/sites/default/files/component_datasheet/TB6600-Datasheet.pdf
+- https://www.makerguides.com/wp-content/uploads/2019/10/TB6600-Manual.pdf
