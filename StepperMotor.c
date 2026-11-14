@@ -1,7 +1,7 @@
 #define F_CPU 16000000
 #include <util/delay.h>
 #include <avr/io.h>
-// #include <avr/interrupt.h>
+#include <avr/interrupt.h>
 
 #define TWI_DEBUG
 #define PRINTF_IMPLEMENTATION
@@ -13,20 +13,22 @@
 #define LIBAS5600_IMPLEMENTATION
 #include "libAS5600.h"
 
-
+#define ABS(x) ((x) < 0 ? (-x) : (x))
+#define MIN_MICRO_STEP 200
+volatile uint8_t MICRO_STEP = 32;
+#define STEP_MOTOR (MICRO_STEP*MIN_MICRO_STEP)
 
 void TWI_Init()
 {
     // SCL_freq = CPU_clk_freq / (16 + 2*(TWBR) * PrescalerValue)
     // PrescalerValue = 1 => TWSR = 0
-    // TWBR = 12; 400kHz
+    // TWBR = 12; // 400kHz
     TWBR = 72; // 100kHz
 }
 
-/* 2 PWM with a duty cycle of 50% are generated
- * To move forward the goal is to increase the first PWM and
- * decrease the second.
- * To move backward just do the opposite.
+/* CTC timer mode is used. To move forward the goal is to
+ * decrease the OCR1A register. To move backward just do the
+ * opposite.
  */
 void TIMER1_Init()
 {
@@ -39,18 +41,6 @@ void TIMER1_Init()
  * f_clk     = 16 000 000 Hz
  * f_OC0x    =      2 857 Hz
  * N         =          8
- * __________________________________________________
- * | Num | PINC2 | PINC1 | PINC0 ||      OCR1A      |
- * |-----|-------|-------|-------||-----------------|
- * |   0 |     0 |     0 |     0 ||      0x400      |
- * |   1 |     0 |     0 |     1 ||        700      |
- * |   2 |     0 |     1 |     1 ||        350      |
- * |   3 |     0 |     1 |     0 ||       ~233      |
- * |   4 |     1 |     1 |     0 ||        175      |
- * |   5 |     1 |     1 |     1 ||        140      |
- * |   6 |     1 |     0 |     1 ||       ~116      |
- * |   7 |     1 |     0 |     0 ||        100      |
- * --------------------------------------------------
  */
     DDRB   = _BV(DDB1);
     TCCR1A = _BV(COM1A0);
@@ -63,7 +53,7 @@ void TIMER1_Init()
 void PORT_init()
 {
     DDRD =  _BV(DDD7) | _BV(DDD6); // DDD7 (DIR) DDD6 (ENA)
-    DDRB =  _BV(DDB5); // DDB5 (LED)
+    DDRB =  _BV(DDB5);             // DDB5 (LED)
     DDRC = ~_BV(DDC0) | ~_BV(DDC1) | ~_BV(DDC2) | ~_BV(DDC3);
 }
 
@@ -77,18 +67,31 @@ void PORT_init()
  * |  GND  | IRS |  Vcc  | IRS | ORS | ORS | ORS | ORS |
  * |       |  B1 |       |  B0 |  A3 |  A2 |  A1 |  A0 |
  * -----------------------------------------------------
- * 
+ *
  * B0: NC
  * B1: NC
  * A0: Connected to PC3
  * This pin determine the direction of the rotation,
  * clockwise = 0, counterclockwise = 1
- * A1: Connected to PC2
+ * A0: Connected to PC3
+ * A1: Connected to PC1
  * A2: Connected to PC0
- * A3: Connected to PC1
- * In the order A1 -> A3 -> A2 is the Gray code of the ORS
+ * A3: Connected to PC2
+ *
+ * _________________________________________________________
+ * | Num | PINC2 (A3) | PINC1 (A1) | PINC0 (A2) ||   OCR1A |
+ * |-----|------------|------------|------------||---------|
+ * |   0 |          0 |          0 |          0 ||   0x400 |
+ * |   1 |          0 |          0 |          1 ||     700 |
+ * |   2 |          0 |          1 |          1 ||     350 |
+ * |   3 |          0 |          1 |          0 ||    ~233 |
+ * |   4 |          1 |          1 |          0 ||     175 |
+ * |   5 |          1 |          1 |          1 ||     140 |
+ * |   6 |          1 |          0 |          1 ||    ~116 |
+ * |   7 |          1 |          0 |          0 ||     100 |
+ * ---------------------------------------------------------
  */
-void Rotary_Encoder()
+void knob() // other name for Rotary-Encoder
 {
     int8_t val = (bit_is_set(PINC, PINC0) != 0) << 0 | (bit_is_set(PINC, PINC1) != 0) << 1 | (bit_is_set(PINC, PINC2) != 0) << 2;
 
@@ -110,31 +113,106 @@ void Rotary_Encoder()
     // printf("OCR1A: 0x%02x\n", OCR1A);
 }
 
-void do_rotation(uint16_t Prev, uint16_t angle, float speed)
+void do_blind_rotation(uint16_t Prev, float angle, float speed)
 {
     if (speed < 0.f) speed = 0.f;
     if (speed > 1.002f) speed = 1.002f;
-    
+
     uint8_t buf_TCCR1A = TCCR1A;
     uint8_t buf_TCCR1B = TCCR1B;
     uint16_t buf_OCR1A = OCR1A;
-    
+
     PORTD &= ~_BV(PORTD6);
+    if (angle < 0) {PORTD |=  _BV(PORTD7); angle = -angle;}
+    else            PORTD &= ~_BV(PORTD7);
     TCCR1A = _BV(COM1A0);
     TCCR1B = _BV(WGM12) | _BV(CS10);
     TCNT1 = 0;
-    // OCR1A = 2500;
-    // OCR1A = 401; // 20 KHz
     OCR1A = 401 + (1.f-speed)*0xffff;
-    // OCR1A = 0xffff;
-    // OCR1A = 200;
 
-    for (int i = 0; i < Prev/(360/angle); i++) {
+    for (int i = 0; i < Prev/(360.f/angle); i++) {
 	loop_until_bit_is_set(PINB, PINB1);
 	loop_until_bit_is_clear(PINB, PINB1);
     }
 
     PORTD |= _BV(PORTD6);
+    TCCR1A = buf_TCCR1A;
+    TCCR1B = buf_TCCR1B;
+    OCR1A  = buf_OCR1A;
+}
+
+void goto_pos(uint16_t Prev, float desire_360_angle, float speed)
+{
+    if (speed < 0.f) speed = 0.f;
+    if (speed > 1.002f) speed = 1.002f;
+    /***** future to get the the choice by a parameter *****/
+    // if (_360_angle < 0) {PORTD |=  _BV(PORTD7); _360_angle = -_360_angle;}
+    // else                PORTD &= ~_BV(PORTD7);
+    if (desire_360_angle < 0) {desire_360_angle = -desire_360_angle;}
+
+    uint16_t mes_12b_angle = 0;
+    AS5600_read_16b_register(AS5600_ANGLE, &mes_12b_angle);
+    uint16_t desire_12b_angle = (desire_360_angle/360.f)*4096.f;
+
+    uint16_t mes_12b_angle_wider = mes_12b_angle;
+    uint16_t desire_12b_angle_wider = desire_12b_angle;
+
+    if (mes_12b_angle < 0x1000/2) mes_12b_angle_wider = mes_12b_angle + 0x1000;
+    else                          desire_12b_angle_wider = desire_12b_angle + 0x1000;
+
+    int target = mes_12b_angle - desire_12b_angle;
+    int tg_buf = mes_12b_angle_wider - desire_12b_angle_wider;
+
+    if (target == 0) return ;
+    else if (ABS(target) > ABS(tg_buf)) target = mes_12b_angle_wider - desire_12b_angle_wider;
+
+    if (target < 0) {PORTD &= ~_BV(PORTD7); target = ABS(target);}
+    else             PORTD |=  _BV(PORTD7);
+
+    uint8_t buf_TCCR1A = TCCR1A;
+    uint8_t buf_TCCR1B = TCCR1B;
+    uint16_t buf_OCR1A = OCR1A;
+
+    PORTD &= ~_BV(PORTD6);
+    TCCR1A = _BV(COM1A0);
+    TCCR1B = _BV(WGM12) | _BV(CS10);
+    TCNT1 = 0;
+    OCR1A = 401 + (1.f-speed)*0xffff;
+
+    for (int i = 0; i < ((float)target/(float)(1<<12))*Prev; i++) {
+	loop_until_bit_is_set(PINB, PINB1);
+	loop_until_bit_is_clear(PINB, PINB1);
+    }
+
+    PORTD |= _BV(PORTD6);
+    TCCR1A = buf_TCCR1A;
+    TCCR1B = buf_TCCR1B;
+    OCR1A  = buf_OCR1A;
+}
+
+
+
+void goto_zero_pos()
+{
+    uint8_t buf_TCCR1A = TCCR1A;
+    uint8_t buf_TCCR1B = TCCR1B;
+    uint16_t buf_OCR1A = OCR1A;
+
+    PORTD &= ~_BV(PORTD6); // ENA the motor
+    PORTD |=  _BV(PORTD7); // Bug in the opposite direction
+    TCCR1A = _BV(COM1A0);
+    TCCR1B = _BV(WGM12) | _BV(CS10);
+    TCNT1 = 0;
+    OCR1A = 1000;
+
+    uint16_t zero = 0;
+    do {
+	AS5600_read_16b_register(AS5600_ANGLE, &zero);
+	// if (zero < 11 || zero > 4096) printf("Pos: %u\n", zero);
+    } while (zero > 0);
+
+    PORTD |= _BV(PORTD6);
+    PORTD &=  ~_BV(PORTD7);
     TCCR1A = buf_TCCR1A;
     TCCR1B = buf_TCCR1B;
     OCR1A = buf_OCR1A;
@@ -154,27 +232,78 @@ int main()
     PORT_init();
     TIMER1_Init();
 
-    AS5600_calibrate();
-    // do_rotation(6400, 360, 1.f);
-    do_rotation(200*32, 360, 0.8f);
-    
+    sei();
+
     while (1) {
-	uint16_t magnitude = 0;
-	uint16_t angle = 0;
-	uint8_t status = 0;
-	uint8_t agc = 0;
-	int res = AS5600_read_16b_register(AS5600_MAGNITUDE, &magnitude);
-	res = AS5600_read_16b_register(AS5600_ANGLE, &angle);
-	res = AS5600_read_8b_register(AS5600_STATUS, &status);
-	res = AS5600_read_8b_register(AS5600_AGC, &agc);
-
-	printf("status: %s, %03u, Magnitude: %u, angle: %u\n", AS5600_DETECT[(status & 0b00111000)>>3], agc, magnitude, angle);
-// #ifdef TWI_DEBUG
-// 	if (res != 0) printf("ERROR: 0x%02x: %s\n", res, twierror(res));
-// #endif // TWI_DEBUG
-
-	Rotary_Encoder();
+	knob();
 	PORTB ^= (1 << PORTB5);
 	_delay_ms(50);
+    }
+}
+
+/* interuption de reception d'un caractere*/
+ISR (USART_RX_vect)
+{
+    /* Returne le recept */
+    char recept = UDR0;
+    // static char buf[4] = {0};
+    // static uint8_t index = 0;
+    // if (recept != 13' && index < 3) {
+    // 	buf[index++] = recept;
+    // } else if (recept != 13 && index >= 3) {
+    // 	printf("ERROR: Invalid command\n");
+    // }
+
+    printf("Command: \'%c\'\n", recept);
+    uint16_t angle = 0;
+
+    switch (recept)
+    {
+	case '0':
+	    goto_zero_pos();
+	    printf("Position set to 0\n");
+	    break;
+	case 'c':
+	    AS5600_calibrate();
+	    printf("Calibration done\n");
+	    break;
+	case '1':
+	    goto_pos(STEP_MOTOR, 90, 1.f);
+	    // do_blind_rotation(STEP_MOTOR, 90, 1);
+	    break;
+	case '2':
+	    goto_pos(STEP_MOTOR, 180, 1.f);
+	    // do_blind_rotation(STEP_MOTOR, 180, 1);
+	    break;
+	case '3':
+	    goto_pos(STEP_MOTOR, 90*3, 1.f);
+	    // do_blind_rotation(STEP_MOTOR, -90, 1);
+	    break;
+	case '4':
+	    goto_pos(STEP_MOTOR, 0, 1.f);
+	    // do_blind_rotation(STEP_MOTOR, -6*360, 1);
+	    break;
+	case '5':
+	    // for (int i = 0; i < 100; i++) {
+		do_blind_rotation(STEP_MOTOR, 360, 0.99f);
+		// printf("Tour: %d\n", i);
+	    // }
+	    break;
+	case '6':
+	    // for (int i = 0; i < 100; i++) {
+		do_blind_rotation(STEP_MOTOR, -360, 0.99f);
+		// printf("Tour: %d\n", i);
+	    // }
+	    break;
+	case '9':
+	    for (int i = 0; i < 5; i++)
+	        goto_pos(STEP_MOTOR, 72*i, 0.95f);
+	    break;
+	case 'm':
+	    AS5600_read_16b_register(AS5600_ANGLE, &angle);
+	    printf("Position: %u\n", angle);
+	    break;
+	default:
+	    break;
     }
 }
