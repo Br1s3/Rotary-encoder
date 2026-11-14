@@ -81,6 +81,15 @@ static int USART_Transmit(char data, FILE *stream)
     return 0;
 }
 
+// /* interuption de reception d'un caractere*/
+// ISR (USART_RX_vect)
+// {
+// 	/* Returne le recept */
+// 	recept = UDR0;
+// 	USART_Transmit( recept );
+// 	//prog();
+// }
+// #  endif
 
 # endif // PRINTF_IMPLEMENTATION
 #endif // PRINT_H_INCLUDED
